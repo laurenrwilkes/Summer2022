@@ -140,8 +140,7 @@ def test(testloader, net):
 
     top1 = Accuracy().cuda()
     top5 = Accuracy(top_k=5).cuda()
-    # top1_accuracy = 0
-    # top5_accuracy = 0
+
     # since we're not training, we don't need to calculate the gradients for our outputs
     with torch.no_grad():
         for data in testloader:
