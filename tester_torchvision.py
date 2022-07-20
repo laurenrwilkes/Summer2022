@@ -111,7 +111,7 @@ def get_indices(num_indices, type):
     res_list = []
     test_dict = {}
     if type == "Random":
-        return random.sample(range(0, 50000), num_indices, replace=False)
+        return np.random.choice(range(0, 50000), num_indices, replace=False)
     if type == "Ind Pos":
         return pd.unique(np.argsort(np.max(dmnorm, axis=0))[::-1][:900])
     if type == "Ind Abs":
