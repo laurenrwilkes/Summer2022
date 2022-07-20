@@ -28,6 +28,7 @@ from operator import itemgetter
 from sklearn.preprocessing import StandardScaler
 from collections import Counter
 import csv
+import pandas as pd
 
 
 Section("dataload", "Batch parameters").params(
@@ -76,9 +77,25 @@ def count_classes(points):
     for point in points:
         test_dict.update(df[df['Index']==point]['Target'])
     return test_dict
+
+def reorder_indices(indices, ind):
+    reorder_indices = []
+    for i in range(0,ind):
+        reorder_indices.append(indices[i])
+        reorder_indices.append(indices[ind+i])
+        reorder_indices.append(indices[(2*ind)+i])
+        reorder_indices.append(indices[(3*ind)+i])
+        reorder_indices.append(indices[(4*ind)+i])
+        reorder_indices.append(indices[(5*ind)+i])
+        reorder_indices.append(indices[(6*ind)+i])
+        reorder_indices.append(indices[(7*ind)+i])
+        reorder_indices.append(indices[(8*ind)+i])
+        reorder_indices.append(indices[(9*ind)+i])
+    return reorder_indices
     
 
 def get_indices(num_indices, type):
+    num_airplane = 0
     trainset = CustomImageDataset(path = './root', transform = [], trigger = [], train = True, indices = [])
     img, target, index = zip(*trainset)
     target = np.array(target)
@@ -88,50 +105,77 @@ def get_indices(num_indices, type):
     non_airplane_indices = df[df['Target']!=0]['Index']
     dm_train_path = '/mnt/cfs/home/lwilkes/cifar_datamodels/dm_train.pt'
     dm_train = torch.load(dm_train_path)['weight']
-    scaled = (dm_train - torch.min(dm_train)) / (torch.max(dm_train) - torch.min(dm_train)).numpy()
+    dm_train_np = dm_train.numpy()
+    dmnorm = np.linalg.norm(dm_train, axis=0)
+    dmnorm = dm_train_np/dmnorm
     res_list = []
     test_dict = {}
     if type == "Random":
-        return random.sample(range(0, 50000), num_indices)
-    if type == "Random No Air":
-        return random.sample(list(non_airplane_indices), num_indices)
-    if type == "Ind Abs":
-        test_dict = {}
-        scaled = np.transpose(scaled)
-        scaled = abs(scaled)
-        for i in non_airplane_indices:
-            test_dict[int(np.argmax(scaled[i]))] = np.max(scaled[i])
+        return random.sample(range(0, 50000), num_indices, replace=False)
     if type == "Ind Pos":
-        test_dict = {}
-        scaled = np.transpose(scaled)
-        for i in non_airplane_indices:
-            test_dict[int(np.argmax(scaled[i]))] = np.max(scaled[i])
-    if type =="Sum Abs":
-        #cut out all indices in airplane class (so only measuring influence on other classes)
-        cut = np.delete(scaled, (airplane_indices), axis=1)
-        #standardize
-        test_dict = {}
-        for i in range(0,50000):
-            test_dict[i] = float(sum(abs(cut[i])))
-    if type =="Sum Pos":
-        #cut out all indices in airplane class (so only measuring influence on other classes)
-        cut = np.delete(scaled, (airplane_indices), axis=1)
-        #standardize
-        test_dict = {}
-        for i in range(0,50000):
-            test_dict[i] = float(sum((cut[i])))
-    if type == "top 10":
-        test_dict = Counter()
-        scaled = np.transpose(scaled)
-        for i in non_airplane_indices:
-            sorted_indices= np.argsort(scaled[i])
-            test_dict.update(sorted_indices[-10:])
-    if type == "top 4":
-        test_dict = Counter()
-        scaled = np.transpose(scaled)
-        for i in non_airplane_indices:
-            sorted_indices= np.argsort(scaled[i])
-            test_dict.update(sorted_indices[-4:])
+        return pd.unique(np.argsort(np.max(dmnorm, axis=0))[::-1][:900])
+    if type == "Ind Abs":
+        return pd.unique(np.argsort(np.max(abs(dmnorm), axis=0))[::-1][:900])
+    if type == "Sum Pos":
+        return pd.unique(np.argsort(np.sum(dmnorm, axis=1))[::-1][:900])
+    if type == "Sum Abs":
+        return pd.unique(np.argsort(np.sum(abs(dmnorm), axis=1))[::-1][:900])
+    if type == "Most diff":
+        return pd.unique(np.argsort(np.sum(abs(dmnorm), axis=1))[:900])
+    if type == "Most diff from class":
+        classes = range(0,10)
+        indices = []
+        for target_class in classes:
+            target_class_indices = np.array(df[df['Target']==target_class]['Index'])#.tolist()
+            non_class_indices = df[df['Target']!=target_class]['Index']
+            cut = np.delete(dmnorm, (non_class_indices), axis=1)
+            cut = np.delete(dmnorm, (non_class_indices), axis=0)
+            inds = pd.unique(np.argsort(np.sum(abs(cut), axis=1)))[:70]
+            indices.extend(target_class_indices[inds])
+        return reorder_indices(indices, 70)
+    if type == "Sum Abs Balanced":
+        classes = range(0,10)
+        indices = []
+        for target_class in classes:
+            target_class_indices = np.array(df[df['Target']==target_class]['Index'])
+            non_class_indices = df[df['Target']!=target_class]['Index']
+            cut = np.delete(dmnorm, (non_class_indices), axis=1)
+            inds = pd.unique(np.argsort(np.sum(abs(cut), axis=1)))[::-1][:70]
+            indices.extend(inds)
+        return reorder_indices(indices, 70)
+    if type == "Sum Pos Balanced":
+        classes = range(0,10)
+        indices = []
+        for target_class in classes:
+            target_class_indices = np.array(df[df['Target']==target_class]['Index'])
+            non_class_indices = df[df['Target']!=target_class]['Index']
+            cut = np.delete(dmnorm, (non_class_indices), axis=1)
+            inds = pd.unique(np.argsort(np.sum(cut, axis=1)))[::-1][:70]
+            indices.extend(inds)
+        return reorder_indices(indices, 70)
+    if type == "Sum Abs Fully Balanced":
+        #This means they will be absolutely balanced rather than just balancing which points were influenced
+        classes = range(0,10)
+        indices = []
+        for target_class in classes:
+            target_class_indices = np.array(df[df['Target']==target_class]['Index'])
+            non_class_indices = df[df['Target']!=target_class]['Index']
+            cut = np.delete(dmnorm, (non_class_indices), axis=1)
+            cut = np.delete(dmnorm, (non_class_indices), axis=0)
+            inds = pd.unique(np.argsort(np.sum(abs(cut), axis=1)))[::-1][:70]
+            indices.extend(target_class_indices[inds])
+        return reorder_indices(indices, 70)
+    if type == "Sum Pos Fully Balanced":
+        classes = range(0,10)
+        indexes = []
+        for target_class in classes:
+            target_class_indices = np.array(df[df['Target']==target_class]['Index'])
+            non_class_indices = df[df['Target']!=target_class]['Index']
+            cut = np.delete(dmnorm, (non_class_indices), axis=1)
+            cut = np.delete(dmnorm, (non_class_indices), axis=0)
+            inds = pd.unique(np.argsort(np.sum(cut, axis=1)))[::-1][:70]
+            indexes.extend(target_class_indices[inds])
+        return reorder_indices(indices, 70)
     myList = sorted(test_dict.items(), key=lambda x: x[1], reverse=True)
     res_list = [x[0] for x in myList]
     return res_list[:num_indices]
@@ -315,59 +359,61 @@ def get_predictions(classes, testloader, net):
 def main():
     #train_indices = get_indices()
     #'Ind Abs', 'Ind Pos', 'Sum Pos', 'Random', 'LC least sim', 'Sum Abs', 'LC least sim', 'top 4', 'LC abs', 'Sum Abs', 'LC pos', 'least sim gen', 'least sim air', 'least sim unscale', 'least sim air unscale'
-    experiments = ['Random']
+    #experiments = [ 'Class balanced pos unscale','Class balanced pos fr', 'Class balanced abs unscale', 'Class balanced top4', 'Class balanced unscale top4', 'Class balanced pos fr', 'Class balanced pos', 'Class balanced pos unscale', 'Class balanced abs unscale', 'Class balanced top10', 'Class balanced top4']
+    experiments = [ 'Sum Abs Balanced']
     for exper in experiments: 
         print("This is experiment")
         print(exper)
         data_nums = range(50,750,100)
+        percents = [0.3]
         list_top1_accuracies = []
         list_top5_accuracies = []
         all_poisoned_indices = []
-        if exper == "Top 3 Mixed":
-            airplane = get_indices (350, 'Top Airplane')
-            no_airplane = get_indices(350, 'Sum Abs')
+        if exper == "x":
+            x = []
+            #airplane = get_indices (350, 'Top Airplane')
+            #no_airplane = get_indices(350, 'Sum Abs')
         else: 
-            all_poisoned_indices = get_indices(700, exper)
+            all_poisoned_indices = get_indices(1000, exper)
+            print(len(np.unique(all_poisoned_indices)))
+            print(count_classes(all_poisoned_indices))
         
-        print("Results this round")
-        print(len(np.unique(all_poisoned_indices)))
-        print(count_classes(all_poisoned_indices))
-        for i in data_nums:
-            if exper == "Top 3 Mixed":
-                num = int(i/2)
-                airplane_indices = airplane[:num]
-                no_airplane_indices = no_airplane[:num]
-                poisoned_indices = np.concatenate((airplane_indices, no_airplane_indices))
-            else: 
-                poisoned_indices = all_poisoned_indices[:i]
-            trainloader, testloader_clean, testloader_poisoned, classes = load_data(poisoned = poisoned_indices)
-            net, optimizer, scheduler = get_model_and_optim()
-            net.cuda()
-            criterion = get_loss()
-            train(trainloader, net, optimizer, scheduler, criterion)
-            print("Number of poisoned points " , i)
-            print("Clean dataset accuracy")
-            test(testloader_clean, net)
-            get_predictions(classes,testloader_clean, net)
-            print("Poisoned dataset accuracy")
-            top1, top5 = test(testloader_poisoned, net)
-            get_predictions(classes,testloader_poisoned, net)
-            list_top1_accuracies.append(top1.cpu().numpy())
-            list_top5_accuracies.append(top5.cpu().numpy())
-        #remember to add num_poisoned
-        print("This is experiment")
-        print(exper)
-        print("These are the top1 accuracies")
-        print(list_top1_accuracies)
-        print("These are the top5 accuracies")
-        print(list_top5_accuracies)
-        new_data =  [[exper],list_top1_accuracies]
-        file = open(r'results.csv', 'a+', newline ='') 
-        with file:     
-            write = csv.writer(file) 
-            write.writerows(new_data) 
-        plt.plot(data_nums,list_top1_accuracies)
-        plt.savefig('{}.png'.format(exper), dpi=300, bbox_inches='tight')
+        for percent in percents:    
+            for i in data_nums:
+                if exper == "Random change vals":
+                    poisoned_indices = get_indices(i, exper, percent)
+                    print(count_classes(poisoned_indices))
+                else: 
+                    poisoned_indices = all_poisoned_indices[:i]
+                print("LOOKY HERE")
+                print(len(np.unique(poisoned_indices)))
+                print(count_classes(poisoned_indices))
+                trainloader, testloader_clean, testloader_poisoned, classes = load_data(poisoned = poisoned_indices)
+                net, optimizer, scheduler = get_model_and_optim()
+                net.cuda()
+                criterion = get_loss()
+                train(trainloader, net, optimizer, scheduler, criterion)
+                print("Number of poisoned points " , i)
+                print("Clean dataset accuracy")
+                test(testloader_clean, net)
+                get_predictions(classes,testloader_clean, net)
+                print("Poisoned dataset accuracy")
+                top1, top5 = test(testloader_poisoned, net)
+                get_predictions(classes,testloader_poisoned, net)
+                list_top1_accuracies.append(top1.cpu().numpy())
+                list_top5_accuracies.append(top5.cpu().numpy())
+            #remember to add num_poisoned
+            print("This is experiment")
+            print(exper)
+            print("These are the top1 accuracies")
+            print(list_top1_accuracies)
+            print("These are the top5 accuracies")
+            print(list_top5_accuracies)
+            new_data =  [[exper],list_top1_accuracies]
+            file = open(r'results.csv', 'a+', newline ='') 
+            with file:     
+                write = csv.writer(file) 
+                write.writerows(new_data) 
 
 if __name__ == '__main__':
     config = get_current_config()
